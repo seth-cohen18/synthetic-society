@@ -1,0 +1,45 @@
+[
+  {
+    "id": "planning_style",
+    "type": "head_to_head",
+    "title": "Default planning style",
+    "question": "Which default day-planning style would you rather TaskFlow shipped with?",
+    "context": "This is the default every new user gets; it can be changed in settings later.",
+    "variants": [
+      { "id": "full_auto", "label": "Full auto-plan", "desc": "TaskFlow plans your entire day end to end; you just follow it." },
+      { "id": "suggest", "label": "Suggest-and-approve", "desc": "TaskFlow proposes a plan and you tweak it before it's set." }
+    ]
+  },
+  {
+    "id": "replan_trigger",
+    "type": "head_to_head",
+    "title": "When the day changes",
+    "question": "When a meeting runs long, how should TaskFlow handle the rest of your day?",
+    "context": "About how aggressive automatic re-planning should be.",
+    "variants": [
+      { "id": "auto_replan", "label": "Re-plan automatically", "desc": "It silently re-shuffles the rest of your day." },
+      { "id": "ask_first", "label": "Ask before re-planning", "desc": "It pings you and waits for a tap before changing anything." }
+    ]
+  },
+  {
+    "id": "roadmap",
+    "type": "rank",
+    "title": "What to build next",
+    "question": "Rank these from the one you MOST want to the one you LEAST want.",
+    "context": "All are on the roadmap but not built yet.",
+    "variants": [
+      { "id": "mobile", "label": "Mobile app", "desc": "A full iOS/Android app, not just web." },
+      { "id": "team", "label": "Shared team plans", "desc": "Plan across a small team, not just yourself." },
+      { "id": "habits", "label": "Habit scheduling", "desc": "Auto-schedule recurring habits like exercise or reading." },
+      { "id": "analytics", "label": "Deeper time analytics", "desc": "Where your time actually goes, by project." }
+    ]
+  },
+  {
+    "id": "open_next",
+    "type": "open",
+    "title": "Your call",
+    "question": "If TaskFlow could build or fix ONE thing next, what would it be — and what would you still want to ask before committing?",
+    "context": "Open floor — not limited to anything above.",
+    "variants": []
+  }
+]

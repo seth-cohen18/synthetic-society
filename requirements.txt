@@ -1,0 +1,6 @@
+anthropic>=0.40.0
+python-dotenv>=1.0.0
+
+# ── Optional — only install if you enable that grounding source ──────────────
+# yt-dlp>=2024.0.0     # YouTube transcripts as grounding
+# praw>=7.7.0          # Reddit grounding (bring your own app credentials)

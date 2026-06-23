@@ -1,0 +1,25 @@
+# ── Secrets — NEVER commit ───────────────────────────────────────────────
+.env
+*.key
+*.pem
+
+# ── Per-run artifacts (personas, judgments, reports, spend) ──────────────
+# All generated output lives here. It's user/product-specific — never commit it.
+runs/
+*.output
+_spend.json
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# ── OS / editor ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

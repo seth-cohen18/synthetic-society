@@ -61,7 +61,15 @@ async def design_groups(client, model, brief, n_groups, q_per_group, meter) -> l
         '"questions":["...", ...]}]'
     )
     raw = await metered_call(client, model, system, user, meter, max_tokens=3500)
-    groups = extract_json(raw)
+    try:
+        groups = extract_json(raw)
+        assert isinstance(groups, list) and groups
+    except Exception:
+        # Group design failed to parse — fall back to a single mixed group so the run
+        # still produces a discussion rather than aborting.
+        groups = [{"id": "all", "display_name": "All participants", "focus": "mixed",
+                   "composition": f"a representative mix of {brief.get('audience', 'users')}",
+                   "questions": []}]
     for i, g in enumerate(groups):
         g.setdefault("id", f"group_{i+1}")
         g.setdefault("questions", [])

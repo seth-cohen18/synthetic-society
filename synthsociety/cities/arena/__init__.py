@@ -44,7 +44,10 @@ def informed_brief(brief):
 # ── Experiments: supplied file or auto-design ─────────────────────────────────
 
 async def design_experiments(client, model, brief, meter, k=DEFAULT_EXPERIMENTS) -> list:
-    system = "You design A/B feature-preference experiments for products. Concrete, decision-grade, not vague."
+    system = ("You design A/B feature-preference experiments for products. Concrete, "
+              "decision-grade, not vague. CRITICAL: write every variant description NEUTRALLY "
+              "and with equal weight — never word one option to sound better, safer, or more "
+              "modern than the other, or you bias the test before it runs.")
     user = (
         f"Product: {brief.get('name')} — {brief.get('one_liner')}\n"
         f"Category: {brief.get('category')}\nPitch: {brief.get('pitch')}\n\n"
@@ -53,12 +56,22 @@ async def design_experiments(client, model, brief, meter, k=DEFAULT_EXPERIMENTS)
         "tone, onboarding style, pricing/packaging approach, social philosophy, hardware vs software).\n"
         "- 1 rank: 4-5 roadmap items to prioritize.\n"
         "- 1 open: no variants — what do you want next + any questions.\n\n"
+        "Each variant description must be a flat, factual statement of what that option IS — no "
+        "adjectives that tilt the choice (avoid 'simply', 'just', 'effortless', 'powerful').\n\n"
         'Return ONLY a JSON array. Each: {"id":"snake_case","type":"head_to_head|rank|open",'
         '"title":"...","question":"the question to the judge","context":"1-2 sentences of setup",'
         '"variants":[{"id":"snake_case","label":"short","desc":"one sentence"}]}. open has "variants":[].'
     )
     raw = await metered_call(client, model, system, user, meter, max_tokens=3000)
-    exps = extract_json(raw)
+    try:
+        exps = extract_json(raw)
+    except Exception:
+        # A malformed design response shouldn't abort the run — fall back to one open
+        # experiment so the user still gets directional "what do you want next" signal.
+        exps = [{"id": "open_next", "type": "open", "title": "What to build next",
+                 "question": "What's the one thing you'd most want this product to build or "
+                             "change next, and what would you still want to ask?", "context": "",
+                 "variants": []}]
     out = []
     for i, e in enumerate(exps):
         e.setdefault("id", f"exp_{i+1}")
@@ -258,11 +271,15 @@ def analyze_h2h(exp, js, axes):
     tally = Counter({v: 0 for v in vids})
     strength = Counter({"strong": 0, "lean": 0, "toss-up": 0})
     quotes = defaultdict(list)
+    flips = []
     for j in valid:
         tally[j["choice"]] += 1
         strength[j.get("strength", "lean")] += 1
         if j.get("why"):
             quotes[j["choice"]].append({"name": j.get("name", ""), "why": j["why"]})
+        fl = (j.get("flip") or "").strip()
+        if fl and fl.lower().rstrip(".") not in ("nothing", "none", ""):
+            flips.append(fl)
     winner, tie = _winner(tally)
     segments = {}
     for axis in axes:
@@ -276,6 +293,7 @@ def analyze_h2h(exp, js, axes):
                 c[j["choice"]] += 1
             w, t = _winner(c)
             per[val] = {"n": len(sub), "winner": w, "winner_label": label.get(w, ""),
+                        "low_n": len(sub) < 5,
                         "win_pct": {v: _pct(c[v], len(sub)) for v in vids}}
         if per:
             segments[key] = {"label": axis["label"], "values": per}
@@ -283,7 +301,7 @@ def analyze_h2h(exp, js, axes):
             "win_pct": {v: _pct(tally[v], n) for v in vids}, "winner": winner,
             "winner_label": label.get(winner, ""), "tie": tie,
             "strength_dist": dict(strength), "segments": segments,
-            "quotes": {v: quotes[v][:3] for v in vids}}
+            "quotes": {v: quotes[v][:3] for v in vids}, "flips": flips[:8]}
 
 
 def analyze_rank(exp, js, axes):
@@ -328,8 +346,13 @@ def build_report(path, brief, experiments, results) -> str:
             body.append(f"<p>Winner: <span class='score'>{R.esc(det.get('winner_label', '?'))}</span> "
                         f"<span class='muted'>{R.esc(det.get('win_pct', {}))} (n={det.get('n', 0)}, directional)</span></p>")
             for key, ax in det.get("segments", {}).items():
-                splits = "; ".join(f"{val}: {d['winner_label']}" for val, d in ax["values"].items())
+                splits = "; ".join(
+                    f"{val}: {d['winner_label']}" + (" (low n)" if d.get("low_n") else "")
+                    for val, d in ax["values"].items())
                 body.append(f"<p class='kv'>By {R.esc(ax['label'])}: {R.esc(splits)}</p>")
+            if det.get("flips"):
+                body.append("<p class='kv'>Flip conditions (what would change their mind):</p><ul>"
+                            + "".join(f"<li>{R.esc(f)}</li>" for f in det["flips"]) + "</ul>")
         elif exp["type"] == "rank":
             order_labels = [R.esc(next((v['label'] for v in det['variants'] if v['id'] == vid), vid))
                             for vid in det.get("order", [])]

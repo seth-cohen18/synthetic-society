@@ -46,9 +46,13 @@ async def gen_round1_questions(client, model, brief, meter) -> list:
         "6 question strings."
     )
     raw = await metered_call(client, model, system, user, meter, max_tokens=800)
-    qs = extract_json(raw)
-    return [q for q in qs if isinstance(q, str)][:8] or [
+    try:
+        qs = [q for q in extract_json(raw) if isinstance(q, str)][:8]
+    except Exception:
+        qs = []  # a malformed question list shouldn't abort the run — fall back below
+    return qs or [
         f"Tell me about your experience with {brief.get('category', 'this area')}.",
+        f"What frustrates you most about {brief.get('category', 'this area')} today?",
     ]
 
 
@@ -117,8 +121,17 @@ async def cluster(client, model, brief, personas, responses, meter) -> list:
         '"member_ids":["p_XXX"],"importance_score":8}]. Every persona in exactly one cluster.'
     )
     raw = await metered_call(client, model, system, user, meter, max_tokens=4000)
-    clusters = extract_json(raw)
     pmap = {p.get("id"): p for p in personas}
+    try:
+        clusters = extract_json(raw)
+        assert isinstance(clusters, list) and clusters
+    except Exception:
+        # Clustering failed to parse — rather than abort, fall back to one cluster of
+        # everyone (degraded but keeps Round 2 alive). The report notes the small cluster count.
+        ids = [r["persona_id"] for r in responses]
+        clusters = [{"cluster_id": 1, "theme": "All respondents (clustering unavailable)",
+                     "representative_id": ids[0] if ids else None,
+                     "member_ids": ids, "importance_score": 5}]
     for c in clusters:
         c["size"] = len(c.get("member_ids", []))
         c["rep"] = pmap.get(c.get("representative_id"), {})

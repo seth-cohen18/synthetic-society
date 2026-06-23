@@ -40,9 +40,13 @@ def load_json(path: str) -> Any:
 
 
 def save_json(path: str, data: Any) -> None:
+    """Atomic write: serialize to a temp file in the same dir, then os.replace.
+    A crash mid-write can't leave a half-written (corrupt) artifact behind."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
     print(f"  Saved -> {path}")
 
 
@@ -107,6 +111,11 @@ async def call_claude(
             if attempt == retries - 1:
                 raise
             await asyncio.sleep(2 ** attempt)
+    # All retries exhausted (e.g. sustained rate limiting). Return "" so one bad call
+    # doesn't kill the whole batch — callers guard JSON parsing — but say so loudly
+    # rather than failing silently.
+    print(f"\n  WARNING: call returned no text after {retries} retries (model={model}).",
+          file=sys.stderr)
     return ""
 
 

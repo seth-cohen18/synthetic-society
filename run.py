@@ -27,6 +27,7 @@ from synthsociety.cities import get_city, list_cities
 from synthsociety.cities.base import RunContext
 from synthsociety.cost import suggest_budget_cap
 from synthsociety.grounding import get_source, list_sources, GroundingSource
+from synthsociety.grounding.synthesize import synthesize_audience, merge_priors_into_brief
 from synthsociety.understand import build_understanding, read_product_source, render_brief
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -71,12 +72,18 @@ def understand_gate(client, model: str) -> dict:
     wizard.section("Step 1 — Understand your product")
     print("  Point me at your product. I'll read it and draft a research brief.")
     print("  Accepts: a folder path, a single file, a URL, or just paste a description.")
-    source = wizard.ask_text("Product source")
-    raw = read_product_source(source)
-    if not raw.strip():
-        sys.exit("  Nothing readable found at that source. Try a different path/URL/text.")
-    print("\n  Reading + drafting the brief (one ~1-cent call)...")
-    brief = asyncio.run(build_understanding(client, model, raw))
+    while True:
+        source = wizard.ask_text("Product source")
+        raw = read_product_source(source)
+        if not raw.strip():
+            print("  Nothing readable found at that source. Try a different path/URL/text.")
+            continue
+        print("\n  Reading + drafting the brief (one ~1-cent call)...")
+        try:
+            brief = asyncio.run(build_understanding(client, model, raw))
+            break
+        except RuntimeError as e:
+            print(f"\n  {e}\n")  # bad/non-JSON response — loop back for a cleaner source
 
     while True:
         print("\n" + "=" * 62)
@@ -100,8 +107,9 @@ def understand_gate(client, model: str) -> dict:
 
 def grounding_step(brief: dict) -> list:
     wizard.section("Step 2 — Grounding (optional)")
-    print("  Real quotes make personas talk like actual people. Optional — skip for")
-    print("  a faster, zero-dependency run.")
+    print("  Pull real-world text so personas mirror a real audience — their voice,")
+    print("  their recurring objections, and the segments that actually show up.")
+    print("  Optional — skip for a faster, zero-dependency run.")
     sources = list_sources()
     options = [("none", "No grounding (skip)")]
     for s in sources:
@@ -130,6 +138,38 @@ def grounding_step(brief: dict) -> list:
         return []
     print(f"  Collected {len(pool)} quotes.")
     return pool
+
+
+# ── Calibration: distill the real corpus into audience priors ────────────────
+
+def calibration_step(client, model: str, brief: dict, grounding: list) -> dict:
+    """Turn the scraped corpus into audience PRIORS and merge them into the brief:
+    real recurring objections become hurdles personas must push past, observed
+    segments widen the population. The corpus itself is never a finding — only a
+    realistic starting point. One ~1-cent call; skips cleanly on any failure."""
+    if not grounding:
+        return brief
+    print(f"\n  Calibrating personas from {len(grounding)} real quotes (one ~1-cent call)...")
+    try:
+        priors = asyncio.run(synthesize_audience(client, model, grounding, brief))
+    except Exception as e:
+        print(f"  Calibration skipped ({e}) — using the un-calibrated brief.")
+        return brief
+    if not priors:
+        print("  No usable priors distilled — using the un-calibrated brief.")
+        return brief
+    brief = merge_priors_into_brief(brief, priors)
+    cal = brief.get("_calibration", {})
+    print("  Added from real data (calibration INPUTS, not findings):")
+    if cal.get("audience_note"):
+        print(f"    - who shows up: {cal['audience_note']}")
+    print(f"    - {len(cal.get('objections_added', []))} real objection(s) folded into the "
+          "FAQ personas must push past")
+    segs = cal.get("segments_added", {})
+    if segs:
+        print("    - segments observed: "
+              + "; ".join(f"{k}: {', '.join(v)}" for k, v in segs.items()))
+    return brief
 
 
 # ── Gate 2: cost + population size ────────────────────────────────────────────
@@ -180,6 +220,7 @@ def main():
 
     brief = understand_gate(client, args.model)        # Gate 1
     grounding = grounding_step(brief)
+    brief = calibration_step(client, args.model, brief, grounding)  # corpus -> priors
 
     wizard.section(f"Step 3 — {city.name} setup")
     answers = {}

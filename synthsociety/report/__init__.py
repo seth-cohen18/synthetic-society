@@ -53,6 +53,41 @@ def esc(s) -> str:
     return _html.escape(str(s if s is not None else ""))
 
 
+def calibration_section(brief) -> str:
+    """Render the corpus-derived priors as an explicitly-labeled 'inputs, not
+    findings' block. Returns '' when the run wasn't grounded/calibrated."""
+    cal = (brief or {}).get("_calibration")
+    if not cal:
+        return ""
+    rows = []
+    if cal.get("audience_note"):
+        rows.append(f"<p class='kv'>Who actually shows up online: {esc(cal['audience_note'])}</p>")
+    objs = cal.get("objections_added", [])
+    if objs:
+        rows.append("<p class='kv'>Real recurring objections folded in as <em>hurdles</em> the "
+                    "personas had to push past (not results):</p><ul>"
+                    + "".join(f"<li>{esc(o.get('objection', ''))}</li>" for o in objs[:10])
+                    + "</ul>")
+    segs = cal.get("segments_added", {})
+    if segs:
+        rows.append("<p class='kv'>Observed segments used to widen the population: "
+                    + esc("; ".join(f"{k}: {', '.join(v)}" for k, v in segs.items())) + "</p>")
+    vocab = cal.get("vocabulary", [])
+    if vocab:
+        rows.append("<p class='kv'>Voice calibrated to vocabulary: " + esc(", ".join(vocab[:15])) + "</p>")
+    if not rows:
+        return ""
+    return (
+        "<div class='card' style='border-color:#2b3a5a;background:#0f1622'>"
+        "<h2 style='color:#5b9dff;border-color:#22324a'>Calibration inputs — real, NOT findings</h2>"
+        "<p class='muted'>These priors were distilled from scraped real-world quotes and used "
+        "<strong>only</strong> to make the personas realistic (their voice, their objections, the "
+        "segments represented). They are <strong>not</strong> survey results and were never counted "
+        "in the findings below.</p>"
+        + "".join(rows) + "</div>"
+    )
+
+
 def page(title: str, subtitle: str, body_html: str) -> str:
     return (
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"

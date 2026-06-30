@@ -33,13 +33,20 @@ class RedditSource(GroundingSource):
             import praw
         except ImportError:
             return []
-        reddit = praw.Reddit(
-            client_id=os.getenv("REDDIT_CLIENT_ID"),
-            client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-            user_agent=os.getenv("REDDIT_USER_AGENT", "synthetic-society/0.1"),
-        )
-        reddit.read_only = True
+        try:
+            reddit = praw.Reddit(
+                client_id=os.getenv("REDDIT_CLIENT_ID"),
+                client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+                user_agent=os.getenv("REDDIT_USER_AGENT", "synthetic-society/0.1"),
+            )
+            reddit.read_only = True
+        except Exception as e:
+            # Surface bad credentials instead of silently returning [] (which would
+            # look like "no data" rather than "your REDDIT_* creds are wrong").
+            print(f"  (reddit) could not initialize client: {e}. Check your REDDIT_* credentials.")
+            return []
         out, per_topic = [], max(4, limit // max(1, len(topics)))
+        warned = False
         for topic in topics:
             try:
                 results = reddit.subreddit("all").search(topic, sort="relevance", limit=per_topic)
@@ -50,9 +57,29 @@ class RedditSource(GroundingSource):
                             "quote": text[:1600],
                             "source": f"r/{sub.subreddit.display_name}",
                             "topic": topic,
+                            "score": int(getattr(sub, "score", 0) or 0),
                         })
                     if len(out) >= limit:
                         return out
-            except Exception:
-                continue  # one bad topic shouldn't kill the whole fetch
+                    # A couple of top comments add real first-person voice + objections.
+                    try:
+                        sub.comments.replace_more(limit=0)
+                        for c in sub.comments[:3]:
+                            ctext = (getattr(c, "body", "") or "").strip()
+                            if 60 <= len(ctext) <= 1600:
+                                out.append({
+                                    "quote": ctext[:1600],
+                                    "source": f"r/{sub.subreddit.display_name} (comment)",
+                                    "topic": topic,
+                                    "score": int(getattr(c, "score", 0) or 0),
+                                })
+                            if len(out) >= limit:
+                                return out
+                    except Exception:
+                        pass  # comments are a bonus; submission text already captured
+            except Exception as e:
+                if not warned:  # report the first failure (auth/rate limit), then stay quiet
+                    print(f"  (reddit) search failed for '{topic}': {e}. (bad credentials or rate limit?)")
+                    warned = True
+                continue
         return out

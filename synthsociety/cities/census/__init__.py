@@ -259,6 +259,7 @@ def build_report(path, brief, clusters, round2, n_personas) -> str:
     scores = [r["likelihood_score"] for r in round2 if r.get("likelihood_score")]
     avg = (sum(scores) / len(scores)) if scores else 0
     body = []
+    body.append(R.calibration_section(brief))
 
     body.append("<h2>Overview</h2><div class='card'>")
     body.append(f"<p class='kv'>{n_personas} personas surveyed · {len(clusters)} clusters · "

@@ -336,7 +336,8 @@ def analyze_open(exp, js, axes):
 def build_report(path, brief, experiments, results) -> str:
     body = ["<h2>Overview</h2><div class='card'>"]
     body.append(f"<p class='kv'>{len(experiments)} experiments judged by the population</p></div>")
-    flags = []
+    body.append(R.calibration_section(brief))
+    flags, seen_flags = [], set()
 
     for exp, det in zip(experiments, results):
         body.append("<div class='card'>")
@@ -361,7 +362,10 @@ def build_report(path, brief, experiments, results) -> str:
                         f"cut candidate: {R.esc(det.get('kill_label', ''))}</p>")
         else:
             for q in det.get("questions", []):
-                flags.append(q)
+                key = " ".join(str(q).lower().split())
+                if key and key not in seen_flags:
+                    seen_flags.add(key)
+                    flags.append(q)
             for w in det.get("wants", [])[:8]:
                 body.append(f"<blockquote>{R.esc(w['want'])} <span class='muted'>— {R.esc(w['name'])}</span></blockquote>")
         body.append("</div>")

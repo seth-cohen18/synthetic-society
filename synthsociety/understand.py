@@ -49,10 +49,21 @@ def read_product_source(source: str) -> str:
     source = source.strip()
 
     if source.lower().startswith(("http://", "https://")):
-        req = urllib.request.Request(source, headers={"User-Agent": "synthetic-society/0.1"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            raw = r.read().decode("utf-8", errors="replace")
-        return _strip_html(raw)[:MAX_SOURCE_CHARS]
+        try:
+            req = urllib.request.Request(source, headers={"User-Agent": "synthetic-society/0.1"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            print(f"  Could not fetch that URL ({e}). Paste the text or point at a file instead.")
+            return ""
+        text = _strip_html(raw)[:MAX_SOURCE_CHARS]
+        # A plain GET can't execute JavaScript, so a JS-rendered SPA comes back as an
+        # almost-empty shell. Warn rather than silently build a brief from nothing.
+        if len(text) < 400:
+            print("  WARNING: extracted very little text from this URL — it is likely a "
+                  "JavaScript-rendered page. Paste the product description or point at a "
+                  "file/folder for a reliable brief.")
+        return text
 
     if os.path.isdir(source):
         files = []
@@ -110,8 +121,8 @@ UNDERSTAND_SYSTEM = (
     "from the material}. These are the FAQ personas must push PAST to surface novel "
     "concerns. If the material lacks an answer, give the best honest answer and keep it short.\n"
     '  "grounding_topics": 4-8 short search seeds (topics, subreddits, or phrases) where '
-    "real people discuss this product's problem space — used to optionally pull real "
-    "quotes for voice calibration.\n"
+    "real people discuss this product's problem space — used to optionally scrape real "
+    "text that calibrates persona voice, objections, and segments.\n"
 )
 
 
@@ -124,7 +135,16 @@ async def build_understanding(client, model: str, raw_text: str, on_usage=None) 
     )
     resp = await call_claude(client, model, UNDERSTAND_SYSTEM, user,
                              max_tokens=2500, on_usage=on_usage)
-    brief = extract_json(resp)
+    try:
+        brief = extract_json(resp)
+        if not isinstance(brief, dict):
+            raise ValueError("model did not return a JSON object")
+    except Exception as e:
+        snippet = (resp or "").strip()[:200].replace("\n", " ")
+        raise RuntimeError(
+            f"Could not parse a research brief from the model response ({e}). "
+            f"Response began: {snippet!r}. Re-run, or give a clearer product source."
+        ) from e
     # Light normalization so downstream cities can rely on the shape.
     brief.setdefault("audience_axes", [])
     brief.setdefault("known_objections", [])

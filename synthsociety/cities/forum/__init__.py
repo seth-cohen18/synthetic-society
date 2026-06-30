@@ -349,6 +349,7 @@ async def run_classroom(client, model, brief, personas, analyses, meter) -> list
 
 def build_report(path, brief, analyses, classroom) -> str:
     body = []
+    body.append(R.calibration_section(brief))
     scores = [r["likelihood_score"] for r in classroom if r.get("likelihood_score")]
     avg = sum(scores) / len(scores) if scores else 0
     interest = {k: sum(1 for r in classroom if r.get("interest") == k) for k in ("yes", "maybe", "no")}

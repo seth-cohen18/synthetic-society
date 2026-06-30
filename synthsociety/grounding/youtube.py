@@ -35,6 +35,7 @@ class YouTubeSource(GroundingSource):
         if not key:
             return []
         out, per_topic = [], max(4, limit // max(1, len(topics)))
+        warned = False
         for topic in topics:
             try:
                 search = _get("search", {
@@ -43,7 +44,10 @@ class YouTubeSource(GroundingSource):
                 })
                 video_ids = [it["id"]["videoId"] for it in search.get("items", [])
                              if it.get("id", {}).get("videoId")]
-            except Exception:
+            except Exception as e:
+                if not warned:  # surface a bad key / quota instead of silent "0 quotes"
+                    print(f"  (youtube) search failed for '{topic}': {e}. (bad YOUTUBE_API_KEY or quota?)")
+                    warned = True
                 continue
             for vid in video_ids:
                 try:

@@ -68,9 +68,9 @@ how many personas to spend on, asks for your confirmation, then runs.
         │                       It distills a pitch + an objection FAQ + your
         │                       target audience.   ── you review & edit  [GATE 1]
         ▼
-  3. (Optional) Grounding    ── pull real quotes (Reddit / YouTube / news) to
-        │                       calibrate how the personas talk. Off by default;
-        │                       you bring your own keys. Or supply a quotes file.
+  3. (Optional) Grounding    ── scrape real text (Reddit / YouTube / web / Apify)
+        │                       and distill it into audience priors — real voice,
+        │                       objections, and segments. Off by default; BYO keys.
         ▼
   4. Cost estimate           ── recommended # of personas + the $ it will cost
         │                       for THIS city, and you can dial it down to spend
@@ -105,21 +105,42 @@ Rough ballpark on Claude Sonnet: a full run is typically a few dollars. A
 
 ---
 
-## Grounding sources (optional)
+## Grounding & calibration (optional)
 
 By default, personas are generated from your product understanding alone. You can
-*optionally* feed in real-world voice so personas talk like actual people:
+*optionally* scrape real-world text so the synthetic personas mirror a **real
+audience** — their voice, their recurring objections, and the segments that
+actually show up:
 
 | Source | What it pulls | What you need |
 |---|---|---|
 | **Quotes file** | Quotes you provide as JSON | nothing (always works) |
-| **Reddit** | Posts/comments from relevant subreddits | your own Reddit API app credentials |
-| **YouTube** | Transcripts / comments on relevant videos | (transcripts: `yt-dlp`) / (comments: a YouTube API key) |
-| **News** | Recent articles on the topic | — |
+| **Reddit** | Posts **and top comments** from relevant subreddits (upvote-scored) | your Reddit API app creds · `pip install praw` |
+| **YouTube comments** | Top comments on relevant videos | a YouTube Data API key |
+| **YouTube transcripts** | Spoken captions from relevant videos (richest *voice*) | `pip install yt-dlp` (no key) |
+| **Web articles** | Full article text on the topic (not just headlines) | `pip install trafilatura` (no key) |
+| **News** | Recent headlines on the topic (low-signal fallback) | — |
+| **Apify** | Heavy scraping — web, Reddit, X/Twitter, forums, any site | your own `APIFY_TOKEN` (REST API, no SDK) |
+
+### Calibration — priors in, findings out
+
+Grounding does **not** turn this into a web scraper that reports real data. The
+scraped corpus is distilled (one ~1-cent call) into **calibration priors** merged
+into the brief *before* personas are built:
+
+- real recurring **objections** → folded into the FAQ as hurdles personas must push **past**,
+- observed **segments** → widen the simulated population,
+- real **vocabulary / voice** → injected into persona prompts (voice only — "don't adopt their opinions").
+
+The personas' answers stay **100% synthetic**. Scraped opinions are never counted,
+ranked, or quoted as results — the report shows them only in a separate, explicitly
+labeled **"Calibration inputs — real, NOT findings"** box. That bright line is what
+keeps "flight simulator, not the flight" true even with real data flowing in.
 
 Grounding is **opt-in and pluggable**. Each source is the user's responsibility:
-you supply the credentials and accept that provider's Terms of Service. The
-pipeline degrades gracefully — if a source fails or is off, the run still works.
+you supply any credentials and accept that provider's Terms of Service. The
+pipeline degrades gracefully — if a source is off, missing its package, or fails
+(e.g. a bad key), it says so out loud and the run still works.
 
 ---
 
@@ -134,7 +155,9 @@ synthetic-society/
     cost.py               # per-city cost models → up-front $ estimate
     understand.py         # reads product files/URL → pitch + objection FAQ + audience
     wizard.py             # the interactive question flow
-    grounding/            # pluggable grounding sources (quotes_file, reddit, youtube, news)
+    grounding/            # pluggable scraping sources + corpus->priors distillation
+                          #   quotes_file · reddit · youtube · youtube_transcripts
+                          #   web · news · apify · synthesize (calibration firewall)
     cities/
       base.py             # City interface: setup_questions / estimate / run
       census/             # City 1

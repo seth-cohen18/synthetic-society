@@ -2,5 +2,7 @@ anthropic>=0.40.0
 python-dotenv>=1.0.0
 
 # ── Optional — only install if you enable that grounding source ──────────────
-# yt-dlp>=2024.0.0     # YouTube transcripts as grounding
 # praw>=7.7.0          # Reddit grounding (bring your own app credentials)
+# trafilatura>=1.6.0   # "Web articles" grounding (full article-text extraction; no key)
+# yt-dlp>=2024.0.0     # "YouTube transcripts" grounding (spoken captions; needs the yt-dlp binary on PATH; no key)
+# Apify grounding needs NO package — it calls the Apify REST API over urllib (set APIFY_TOKEN).

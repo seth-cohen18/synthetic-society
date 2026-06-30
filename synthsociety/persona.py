@@ -115,9 +115,10 @@ def build_persona_system_prompt(persona: dict, brief: dict, grounding_quotes: Li
         if selected:
             quote_lines = "\n".join(f'- "{q["quote"]}" [{q.get("source", "")}]' for q in selected)
             base += (
-                "\n\nHere is how real people talk about this space. Let it calibrate your voice "
-                "and vocabulary — don't copy it, but let it inform how you naturally express "
-                "yourself:\n" + quote_lines
+                "\n\nHere is how real people talk about this space. Use it for VOICE and "
+                "vocabulary ONLY — let it inform how you naturally express yourself. Do NOT "
+                "adopt these opinions as your own or repeat their conclusions; reason as "
+                "yourself, from your own life and circumstances:\n" + quote_lines
             )
     return base
 

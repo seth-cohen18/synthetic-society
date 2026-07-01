@@ -13,7 +13,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from synthsociety.cities.arena import (  # noqa: E402
     _choice_variant, _rank_variant_ids, decode_judgment, analyze_rank, analyze_h2h,
+    normalize_experiments,
 )
+
+_H2H_ORDER = [{"id": "calm", "label": "Calm"}, {"id": "hype", "label": "Hype"}]
 
 
 def test_choice_explicit_letter():
@@ -76,6 +79,42 @@ def test_analyze_h2h_collects_flips_and_low_n():
     out = analyze_h2h(exp, js, axes)
     assert out["flips"] == ["if it were cheaper"]            # "nothing" dropped
     assert out["segments"]["role"]["values"]["ic"]["low_n"] is True  # n=1 flagged
+
+
+def test_choice_abstains_on_incidental_lowercase():
+    # The bug: prose with an article "a" / pronoun "i" was miscounted as option A/I.
+    # No standalone UPPERCASE option letter + no label match => abstain (None), not a vote.
+    assert _choice_variant("there's a real tradeoff here", _H2H_ORDER) is None
+    assert _choice_variant("i think either is fine honestly", _H2H_ORDER) is None
+
+
+def test_choice_abstains_when_two_options_appear():
+    # "A or B" is genuinely ambiguous — must abstain rather than silently pick the first.
+    assert _choice_variant("A or B, hard to say", _H2H_ORDER) is None
+
+
+def test_choice_resolves_single_uppercase_in_prose():
+    # A lone valid uppercase option letter inside a sentence still decodes.
+    assert _choice_variant("I'd go with B honestly", _H2H_ORDER) == "hype"
+
+
+def test_normalize_drops_underspecified_head_to_head():
+    exps = normalize_experiments([
+        {"id": "bad", "type": "head_to_head", "variants": [{"id": "only", "label": "Only"}]}])
+    assert all(e["id"] != "bad" for e in exps)     # 1-variant h2h dropped
+    assert exps and exps[0]["type"] == "open"        # never returns empty
+
+
+def test_normalize_caps_variants_to_26():
+    big = {"id": "big", "type": "rank",
+           "variants": [{"id": f"v{i}", "label": str(i)} for i in range(40)]}
+    out = normalize_experiments([big])
+    assert len(out[0]["variants"]) == 26             # no IndexError on A..Z labeling
+
+
+def test_normalize_never_empty():
+    assert normalize_experiments([])[0]["type"] == "open"
+    assert normalize_experiments("garbage")[0]["type"] == "open"
 
 
 def _run_all():

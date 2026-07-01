@@ -246,6 +246,12 @@ def main():
     except BudgetExceeded:
         report_stop(city.name, meter, resume_hint=f"re-run and raise the cap (output in {out_dir})")
         sys.exit(2)
+    except RuntimeError as e:
+        # A city aborted with a clear reason (e.g. the model returned no usable data).
+        # Report it plainly instead of dumping a traceback; partial output is saved.
+        print(f"\n  Run stopped: {e}")
+        print(f"  Any partial output is in {out_dir}")
+        sys.exit(1)
 
     print("\n" + "=" * 62)
     print(f"  DONE — spent ${meter.spent:.2f} over {meter.calls} calls")

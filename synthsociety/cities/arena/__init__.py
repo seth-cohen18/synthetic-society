@@ -30,6 +30,7 @@ from synthsociety import wizard
 PERSONA_BATCH = 25
 MAX_JUDGMENT_TOKENS = 600
 DEFAULT_EXPERIMENTS = 5
+MAX_VARIANTS = 26   # options are shown/decoded as single letters A..Z
 
 
 def _seg_axes(brief):
@@ -72,14 +73,60 @@ async def design_experiments(client, model, brief, meter, k=DEFAULT_EXPERIMENTS)
                  "question": "What's the one thing you'd most want this product to build or "
                              "change next, and what would you still want to ask?", "context": "",
                  "variants": []}]
+    return normalize_experiments(exps)
+
+
+def _open_fallback():
+    return {"id": "open_next", "type": "open", "title": "What to build next",
+            "question": "What's the one thing you'd most want this product to build or change "
+                        "next, and what would you still want to ask?", "context": "", "variants": []}
+
+
+def normalize_experiments(experiments) -> list:
+    """Validate + sanitize experiments from ANY source (user JSON or auto-design) so the
+    tally/labeling downstream can't crash or silently misbehave:
+      - every experiment has id / type / title / question / context / variants,
+      - each variant has id / label / desc,
+      - variant lists are capped to 26 (single-letter A..Z decoding — prevents an
+        IndexError on a hand-written file with too many options),
+      - head_to_head / rank experiments with fewer than 2 variants are dropped (a
+        1-variant 'choice' would trivially 'win' 100%).
+    Never returns empty: falls back to a single open experiment so the run still
+    yields directional signal.
+    """
+    if not isinstance(experiments, list):
+        experiments = []
     out = []
-    for i, e in enumerate(exps):
+    for i, e in enumerate(experiments):
+        if not isinstance(e, dict):
+            continue
         e.setdefault("id", f"exp_{i+1}")
-        e.setdefault("type", "head_to_head")
+        etype = e.get("type", "head_to_head")
+        e["type"] = etype if etype in ("head_to_head", "rank", "open") else "open"
+        e.setdefault("title", e["id"])
+        e.setdefault("question", "")
         e.setdefault("context", "")
-        e.setdefault("variants", [])
+        variants = e.get("variants")
+        variants = variants if isinstance(variants, list) else []
+        clean = []
+        for j, v in enumerate(variants):
+            if not isinstance(v, dict):
+                v = {"label": str(v), "desc": ""}
+            v.setdefault("id", f"{e['id']}_v{j+1}")
+            v.setdefault("label", v["id"])
+            v.setdefault("desc", "")
+            clean.append(v)
+        if len(clean) > MAX_VARIANTS:
+            print(f"  (arena) experiment '{e['id']}' has {len(clean)} variants — "
+                  f"capping to {MAX_VARIANTS}.")
+            clean = clean[:MAX_VARIANTS]
+        e["variants"] = clean
+        if e["type"] in ("head_to_head", "rank") and len(clean) < 2:
+            print(f"  (arena) skipping '{e['id']}' — a {e['type']} needs at least 2 "
+                  f"variants (got {len(clean)}).")
+            continue
         out.append(e)
-    return out
+    return out or [_open_fallback()]
 
 
 # ── Judges ────────────────────────────────────────────────────────────────────
@@ -87,15 +134,30 @@ async def design_experiments(client, model, brief, meter, k=DEFAULT_EXPERIMENTS)
 async def gen_judges(client, model, brief, n, meter) -> list:
     import math
     judges, seg_keys = [], [a["key"] for a in _seg_axes(brief)]
-    for b in range(math.ceil(n / PERSONA_BATCH)):
+    n_batches = math.ceil(n / PERSONA_BATCH)
+    failed = 0
+    for b in range(n_batches):
         start = b * PERSONA_BATCH
         count = min(PERSONA_BATCH, n - start)
         system, user = persona_generation_prompt(brief, count, start, start + count - 1)
         raw = await metered_call(client, model, system, user, meter, max_tokens=8000)
         try:
-            judges.extend(extract_json(raw))
+            batch = extract_json(raw)
         except Exception:
-            pass
+            batch = None
+        if isinstance(batch, list) and batch:
+            judges.extend(batch)
+        else:
+            failed += 1  # this batch returned nothing parseable
+    if failed:
+        print(f"  (arena) {failed}/{n_batches} judge batch(es) returned no parseable personas.")
+    if not judges:
+        # Don't proceed to zero judgments and an empty report that reads like "no
+        # opinions" — that silently masks a broken key / wrong model id / rate limiting.
+        raise RuntimeError(
+            "Arena could not generate any judges — every persona batch came back empty "
+            "or unparseable. That's an API/model problem (bad key, wrong --model id, or "
+            "sustained rate limiting), not 'no opinions'. Nothing was judged or tallied.")
     judges = judges[:n]
     for p in judges:  # flatten segment values for tally access
         seg = p.get("segment", {}) if isinstance(p.get("segment"), dict) else {}
@@ -176,12 +238,21 @@ def _choice_variant(text, order):
     t = (text or "").strip()
     if not t:
         return None
-    m = re.match(r"^[\(\[]?([A-Za-z])[\]\)]?(?:[\s.:)\]\-]|$)", t)
+    # 1) Clean, bare answer — the text IS essentially just the letter: "A", "(A)", "A.".
+    m = re.match(r"^[\(\[]?([A-Za-z])[\]\)]?[\s.:)\]\-]*$", t)
     if m and m.group(1).upper() in valid:
         return order[valid.index(m.group(1).upper())]["id"]
-    for tok in re.findall(r"\b([A-Za-z])\b", t):
-        if tok.upper() in valid:
-            return order[valid.index(tok.upper())]["id"]
+    # 2) Messy answer — look for UPPERCASE option letters standing alone (so incidental
+    #    lowercase words like "a"/"i" can't be read as option A/I). Resolve ONLY if
+    #    EXACTLY ONE distinct option letter appears; if two-plus appear it's ambiguous,
+    #    so abstain. A wrong guess silently flips the tally; an abstention just drops
+    #    this judgment from n — the safe failure.
+    found = {tok.upper() for tok in re.findall(r"\b([A-Z])\b", t) if tok.upper() in valid}
+    if len(found) == 1:
+        return order[valid.index(next(iter(found)))]["id"]
+    if len(found) > 1:
+        return None
+    # 3) Last resort — a single variant named unambiguously by its label or id.
     low = t.lower()
     hits = [v for v in order if v["label"].lower() in low or str(v["id"]).lower() in low]
     return hits[0]["id"] if len(hits) == 1 else None
@@ -422,10 +493,14 @@ class ArenaCity(City):
         axes = _seg_axes(brief)
 
         path = (ctx.answers or {}).get("experiments_path", "").strip()
+        experiments = None
         if path and os.path.isfile(path):
             print(f"\n  [1/4] Loading experiments from {path}...")
-            experiments = load_json(path)
-        else:
+            try:
+                experiments = normalize_experiments(load_json(path))
+            except Exception as e:
+                print(f"  Could not read experiments file ({e}) — auto-designing instead.")
+        if experiments is None:
             print("\n  [1/4] Auto-designing experiments from your product...")
             k = 3 if ctx.limit else DEFAULT_EXPERIMENTS
             experiments = await design_experiments(client, model, brief, m, k=k)

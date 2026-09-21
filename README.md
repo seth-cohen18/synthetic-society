@@ -40,7 +40,7 @@ spots), and a **hard budget cap**.
 ## Quickstart
 
 ```bash
-git clone https://github.com/<you>/synthetic-society.git
+git clone https://github.com/seth-cohen18/synthetic-society.git
 cd synthetic-society
 pip install -r requirements.txt
 
